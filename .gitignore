@@ -1,0 +1,8 @@
+checkpoints/
+data/
+outputs/
+runs/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/

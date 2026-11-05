@@ -1,0 +1,10 @@
+# One-step install:  pip install -r requirements.txt
+# CUDA 12.6 wheels for PyTorch (also run on newer NVIDIA drivers). For a CPU-only machine,
+# change the line below to: --extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.6.0
+numpy>=1.24
+opencv-python-headless>=4.8
+scikit-image>=0.21
+tqdm>=4.65
+pytest>=7.4
