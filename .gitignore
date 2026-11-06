@@ -8,6 +8,5 @@ __pycache__/
 .pytest_cache/
 dataset/
 NOTES.md
-REPORT.md
-README.md
+
 
