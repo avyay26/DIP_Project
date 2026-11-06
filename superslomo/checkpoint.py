@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pickle
+from datetime import datetime
 import warnings
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,10 @@ def read_checkpoint(path: str | Path, device: str | torch.device = "cpu", trust_
             f"Checkpoint not found: {path}. Download SuperSloMo.ckpt from the avinashpaliwal/Super-SloMo "
             "README manually and place it at checkpoints/SuperSloMo.ckpt (or pass --checkpoint PATH).")
     try:
-        ckpt = torch.load(path, map_location=device, weights_only=True)
+        # Reference checkpoints include a standard-library timestamp in metadata.
+        # Allow that specific type while retaining the restricted weights loader.
+        with torch.serialization.safe_globals([datetime]):
+            ckpt = torch.load(path, map_location=device, weights_only=True)
     except (pickle.UnpicklingError, RuntimeError, AttributeError, TypeError) as err:
         if not trust_checkpoint:
             raise CheckpointError(

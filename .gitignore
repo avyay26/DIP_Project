@@ -6,3 +6,8 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+dataset/
+NOTES.md
+REPORT.md
+README.md
+

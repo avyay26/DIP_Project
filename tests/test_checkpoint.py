@@ -62,6 +62,15 @@ class Custom:  # arbitrary object -> not loadable with weights_only=True
     pass
 
 
+def test_timestamp_metadata_loads_without_full_unpickling(tmp_path):
+    from datetime import datetime
+    from superslomo.checkpoint import read_checkpoint
+    path = tmp_path / "timestamp.pt"
+    timestamp = datetime(2018, 6, 1)
+    torch.save({"timestamp": timestamp, "weight": torch.ones(1)}, path)
+    assert read_checkpoint(path)["timestamp"] == timestamp
+
+
 def test_untrusted_pickle_needs_flag(tmp_path):
     m = SuperSloMo(width="tiny")
     path = tmp_path / "pickled.ckpt"

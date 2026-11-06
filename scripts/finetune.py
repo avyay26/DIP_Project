@@ -17,13 +17,17 @@ import sys
 import time
 from pathlib import Path
 
-import _common  # noqa: F401
+import _common
+import matplotlib
+matplotlib.use("Agg")
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
 from superslomo.checkpoint import load_legacy_checkpoint, read_checkpoint, load_state_into, save_legacy_checkpoint
 from superslomo.data import (SyntheticMotion, VimeoTriplet, check_vimeo_root, sample_train_val, split_ids)
+from superslomo.data import FolderTriplet, discover_triplets
+from superslomo.training_viz import plot_history, save_diagnostics
 from superslomo.metrics import psnr, ssim
 from superslomo.model import SuperSloMo, superslomo_loss
 from superslomo.preprocess import tensor_to_float01
@@ -45,13 +49,14 @@ def skip(reason: str) -> None:
 @torch.no_grad()
 def validate(model: SuperSloMo, loader: DataLoader, device) -> dict[str, float]:
     model.eval()
-    ps, ss = [], []
+    ps, ss, losses = [], [], []
     for b in loader:
-        pred = model(b["I0"].to(device), b["I1"].to(device), b["t"].to(device))["frame"]
+        pred = model.interpolate(b["I0"].to(device), b["I1"].to(device), [0.5])[0]
+        losses.append(float(torch.nn.functional.l1_loss(pred.cpu(), b["It"])))
         for p, g in zip(tensor_to_float01(pred), tensor_to_float01(b["It"])):
             ps.append(min(psnr(p, g), 100.0))
             ss.append(ssim(p, g))
-    return {"psnr": float(np.mean(ps)), "ssim": float(np.mean(ss)), "n": len(ps)}
+    return {"psnr": float(np.mean(ps)), "ssim": float(np.mean(ss)), "n": len(ps), "recon_l1": float(np.mean(losses))}
 
 
 def set_train_mode(model: SuperSloMo, freeze_flow: bool) -> None:
@@ -81,6 +86,10 @@ def probe_batch_size(model, sample, batch_size, device, amp) -> int:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dataset", help="Collected triplet root, e.g. dataset/train")
+    ap.add_argument("--scratch", action="store_true", help="Randomly initialize both reference U-Nets")
+    ap.add_argument("--split-file", help="Reuse a JSON with train/val/test ID lists")
+    ap.add_argument("--num-test", type=int, default=100)
     ap.add_argument("--checkpoint", default="checkpoints/SuperSloMo.ckpt")
     ap.add_argument("--trust-checkpoint", action="store_true")
     ap.add_argument("--vimeo-triplet", default="data/vimeo_triplet")
@@ -104,6 +113,10 @@ def main() -> None:
     ap.add_argument("--out", default="runs/finetune")
     args = ap.parse_args()
 
+    if args.epochs < 1 or args.batch_size < 1 or args.num_train < 1 or args.num_val < 1:
+        ap.error("epochs, batch size, train and validation counts must be positive")
+    if args.scratch and args.freeze_flow:
+        ap.error("--scratch cannot freeze a randomly initialized flow network")
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     out = Path(args.out)
@@ -122,17 +135,42 @@ def main() -> None:
         model = SuperSloMo(width="tiny")
         train_ids = [f"synthetic/{i:05d}" for i in range(args.num_train)]
         val_ids = [f"synthetic/{i:05d}" for i in range(args.num_train, args.num_train + args.num_val)]
-        train_ds = SyntheticMotion(args.num_train, 64, 96, seed=args.seed)
+        train_ds = SyntheticMotion(args.num_train, 64, 96, seed=args.seed, times=[0.5])
         val_ds = SyntheticMotion(args.num_val, 64, 96, seed=args.seed + 10_000, times=[0.5])
+    elif args.dataset:
+        root = Path(args.dataset)
+        ids = discover_triplets(root)
+        if args.split_file:
+            split = json.loads(Path(args.split_file).read_text())
+        else:
+            pool = [str(x) for x in np.random.default_rng(args.seed).permutation(ids)]
+            required = args.num_train + args.num_val + args.num_test
+            if args.num_test < 1 or required > len(pool):
+                ap.error(f"Requested {required} triplets including test, available {len(pool)}")
+            split = {"train": pool[:args.num_train],
+                     "val": pool[args.num_train:args.num_train + args.num_val],
+                     "test": pool[args.num_train + args.num_val:required]}
+        groups = [split[k] for k in ("train", "val", "test")]
+        flat = [x for g in groups for x in g]
+        if any(not g for g in groups) or len(flat) != len(set(flat)) or not set(flat) <= set(ids):
+            ap.error("Split must contain nonempty, disjoint train/val/test IDs present in dataset")
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "split.json").write_text(json.dumps(split, indent=2))
+        train_ids, val_ids = split["train"], split["val"]
+        train_ds = FolderTriplet(root, train_ids, augment=True, crop=tuple(args.crop) if args.crop else None)
+        val_ds = FolderTriplet(root, val_ids)
+        model = SuperSloMo(width="full")
+        if not args.scratch and not args.resume:
+            load_legacy_checkpoint(args.checkpoint, model, "cpu", args.trust_checkpoint)
     else:
         try:
             root = check_vimeo_root(args.vimeo_triplet, "triplet")
         except FileNotFoundError as err:
             skip(str(err))
-        if not Path(args.checkpoint).is_file() and not args.resume:
+        if not Path(args.checkpoint).is_file() and not args.resume and not args.scratch:
             skip(f"pretrained checkpoint not found at {args.checkpoint} (Phase 2 must pass first)")
         model = SuperSloMo(width="full")
-        if not args.resume:
+        if not args.resume and not args.scratch:
             load_legacy_checkpoint(args.checkpoint, model, "cpu", args.trust_checkpoint)
         test_ids = split_ids(root, "test")
         train_ids, val_ids = sample_train_val(split_ids(root, "train"), args.num_train, args.num_val,
@@ -169,9 +207,9 @@ def main() -> None:
             args.batch_size = bs
 
     gen = torch.Generator().manual_seed(args.seed)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, generator=gen, drop_last=True,
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, generator=gen, drop_last=False,
                               num_workers=0 if args.synthetic else args.workers, pin_memory=device.type == "cuda")
-    val_loader = DataLoader(val_ds, batch_size=max(1, args.batch_size), shuffle=False,
+    val_loader = DataLoader(val_ds, batch_size=1, shuffle=False,
                             num_workers=0 if args.synthetic else args.workers)
     steps_per_epoch = min(len(train_loader), args.max_steps or len(train_loader))
     total_steps = steps_per_epoch * args.epochs
@@ -194,8 +232,11 @@ def main() -> None:
         base = validate(model, val_loader, device)
         print(f"epoch 0 (before fine-tuning): val PSNR {base['psnr']:.3f}  SSIM {base['ssim']:.4f}  (N={base['n']})")
         history.append({"epoch": 0, "train_loss": None, "val_psnr": base["psnr"], "val_ssim": base["ssim"],
-                        "val_n": base["n"], "time_s": 0.0})
+                        "val_n": base["n"], "val_recon_l1": base["recon_l1"], "time_s": 0.0})
         best_psnr = base["psnr"]
+        save_legacy_checkpoint(out / "best.pt", model, epoch=0, history=history,
+                               train_ids=train_ids, val_ids=val_ids)
+        save_diagnostics(model, val_ds, out / "before.png", device)
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
         set_train_mode(model, args.freeze_flow)
@@ -220,7 +261,7 @@ def main() -> None:
                       f"lr {sched.get_last_lr()[0]:.2e}")
         val = validate(model, val_loader, device)
         entry = {"epoch": epoch, "train_loss": float(np.mean(losses)), "train_recon_l1": float(np.mean(recons)),
-                 "val_psnr": val["psnr"], "val_ssim": val["ssim"], "val_n": val["n"], "time_s": time.time() - t0}
+                 "val_recon_l1": val["recon_l1"], "val_psnr": val["psnr"], "val_ssim": val["ssim"], "val_n": val["n"], "time_s": time.time() - t0}
         history.append(entry)
         print(f"epoch {epoch}: train loss {entry['train_loss']:.4f}  val PSNR {val['psnr']:.3f}  "
               f"SSIM {val['ssim']:.4f}  ({entry['time_s']:.0f}s)")
@@ -238,6 +279,14 @@ def main() -> None:
     if not (out / "best.pt").exists():
         print("note: no epoch beat the pre-fine-tuning validation PSNR; best.pt = last.pt")
         (out / "best.pt").write_bytes((out / "last.pt").read_bytes())
+    plot_history(history, out / "curves.png")
+    load_legacy_checkpoint(out / "best.pt", model, "cpu", args.trust_checkpoint)
+    save_diagnostics(model, val_ds, out / "after.png", device)
+    if args.dataset:
+        test_ds = FolderTriplet(root, split["test"])
+        test_metrics = validate(model, DataLoader(test_ds, batch_size=1), device)
+        (out / "test_metrics.json").write_text(json.dumps(test_metrics, indent=2))
+        save_diagnostics(model, test_ds, out / "test.png", device)
     print(f"done. history: {out / 'history.json'}")
 
 

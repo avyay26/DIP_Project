@@ -8,3 +8,4 @@ opencv-python-headless>=4.8
 scikit-image>=0.21
 tqdm>=4.65
 pytest>=7.4
+matplotlib>=3.7

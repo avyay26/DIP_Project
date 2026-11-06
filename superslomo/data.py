@@ -112,6 +112,37 @@ class VimeoTriplet(Dataset):
         return {"I0": i0, "It": it, "I1": i1, "t": torch.tensor(t), "id": self.ids[idx]}
 
 
+class FolderTriplet(VimeoTriplet):
+    """Collected data: root/<id>/{im1,im2,im3}.png; target is always t=0.5."""
+
+    def frame_paths(self, idx: int) -> list[Path]:
+        return [self.root / self.ids[idx] / f"im{k}.png" for k in (1, 2, 3)]
+
+    def __getitem__(self, idx: int) -> dict:
+        sample = super().__getitem__(idx)
+        shapes = {tuple(sample[k].shape) for k in ("I0", "It", "I1")}
+        if len(shapes) != 1:
+            raise ValueError(f"Mismatched triplet dimensions: {self.ids[idx]}")
+        # Training forward requires multiples of 32; validation uses unmodified images.
+        if self.augment:
+            from .preprocess import pad_to_multiple
+            for k in ("I0", "It", "I1"):
+                sample[k] = pad_to_multiple(sample[k].unsqueeze(0))[0][0]
+        return sample
+
+
+def discover_triplets(root: str | Path) -> list[str]:
+    root = Path(root)
+    ids = sorted(p.parent.relative_to(root).as_posix() for p in root.rglob("im1.png"))
+    if not ids:
+        raise ValueError(f"No triplets found under {root}")
+    for name in ids:
+        for k in (1, 2, 3):
+            if not (root / name / f"im{k}.png").is_file():
+                raise FileNotFoundError(root / name / f"im{k}.png")
+    return ids
+
+
 class VimeoSeptuplet(Dataset):
     """Evaluation view: I0=im1, I1=im5, targets im2, im3, im4 at t = 0.25, 0.5, 0.75."""
 
