@@ -1,6 +1,6 @@
 checkpoints/
 data/
-outputs/
+outputs
 runs/
 __pycache__/
 tests/
