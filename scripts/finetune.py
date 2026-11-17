@@ -1,9 +1,10 @@
-"""Train or fine-tune Super SloMo on collected or Vimeo-90K triplets.
+"""Train or fine-tune Super SloMo on collected or Vimeo-90K-mini triplets.
 
 Training, validation, and test subsets are seeded and disjoint. Vimeo training and
 validation subsets come only from tri_trainlist.txt; the test list is held out. With --freeze-flow only the refinement U-Net is trained, so the
 warping/smoothness terms are constant and the effective loss is L1 reconstruction.
 No perceptual (VGG) loss: it would need a weight download.
+
 """
 from __future__ import annotations
 

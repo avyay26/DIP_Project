@@ -10,5 +10,24 @@ tests/
 dataset/
 NOTES.md
 REPORT.md
+outputs/checkpoint_debug/
+outputs/eval/
+outputs/farneback/
+outputs/lk/
+outputs/method_comparison2_149_153/
+outputs/midpoint_check/
+outputs/midpoint_test/
+outputs/row_figure_check/
+outputs/separate_figure_check/
+outputs/smoke/
+outputs/synthetic_eval
+
+scripts/check_checkpoint.py
+scripts/compare.py
+scripts/evaluate.py
+scripts/evaluate_midpoint.py
+scripts/smoke_test.py
 
 
+superslomo/video.py
+superslomo/viz.py
