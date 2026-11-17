@@ -8,6 +8,8 @@ Install dependencies with `pip install -r requirements.txt`. The pretrained weig
 
 Each sample in `dataset/train/<sample>/` contains `im1.png`, `im2.png`, and `im3.png`. The model uses the first and third frames to predict the middle frame.
 
+[Dataset Link](https://huggingface.co/datasets/bijinc/vimeo-90k-mini/viewer/default/train?row=0)
+
 Fine-tune the pretrained model:
 
 ```bash
