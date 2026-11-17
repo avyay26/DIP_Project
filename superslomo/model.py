@@ -74,11 +74,15 @@ class UNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[1] != self.in_ch:
-            raise ValueError(f"UNet expects {self.in_ch} input channels, got {x.shape[1]}")
+            raise ValueError(
+                f"UNet expects {self.in_ch} input channels, got {x.shape[1]}"
+            )
         h, w = x.shape[-2:]
         if h % PAD_MULTIPLE or w % PAD_MULTIPLE:
-            raise ValueError(f"UNet input H, W must be multiples of {PAD_MULTIPLE}, got {h}x{w}; "
-                             "use pad_to_multiple() first")
+            raise ValueError(
+                f"UNet input H, W must be multiples of {PAD_MULTIPLE}, got {h}x{w}; "
+                "use pad_to_multiple() first"
+            )
         x = _lrelu(self.conv1(x))
         s1 = _lrelu(self.conv2(x))
         s2 = self.down1(s1)
@@ -94,7 +98,9 @@ class UNet(nn.Module):
         return _lrelu(self.conv3(x))
 
 
-def backward_warp(img: torch.Tensor, flow: torch.Tensor, mode: str = "exact") -> torch.Tensor:
+def backward_warp(
+    img: torch.Tensor, flow: torch.Tensor, mode: str = "exact"
+) -> torch.Tensor:
     """g(I, F): out(x) = I(x + F(x)), bilinear, zeros outside the image.
 
     flow[:, 0] is the x (horizontal) displacement, flow[:, 1] the y displacement, in pixels.
@@ -105,7 +111,9 @@ def backward_warp(img: torch.Tensor, flow: torch.Tensor, mode: str = "exact") ->
     if mode not in WARP_MODES:
         raise ValueError(f"warp mode must be one of {WARP_MODES}, got {mode!r}")
     if flow.shape[1] != 2 or flow.shape[-2:] != img.shape[-2:]:
-        raise ValueError(f"flow must be (B,2,H,W) matching img {tuple(img.shape)}, got {tuple(flow.shape)}")
+        raise ValueError(
+            f"flow must be (B,2,H,W) matching img {tuple(img.shape)}, got {tuple(flow.shape)}"
+        )
     _, _, h, w = img.shape
     ys, xs = torch.meshgrid(
         torch.arange(h, device=flow.device, dtype=flow.dtype),
@@ -121,7 +129,13 @@ def backward_warp(img: torch.Tensor, flow: torch.Tensor, mode: str = "exact") ->
         gx = 2.0 * (x / w - 0.5)
         gy = 2.0 * (y / h - 0.5)
     grid = torch.stack((gx, gy), dim=3)
-    return F.grid_sample(img, grid.to(img.dtype), mode="bilinear", padding_mode="zeros", align_corners=True)
+    return F.grid_sample(
+        img,
+        grid.to(img.dtype),
+        mode="bilinear",
+        padding_mode="zeros",
+        align_corners=True,
+    )
 
 
 def _as_time(t: float | torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
@@ -146,16 +160,20 @@ class SuperSloMo(nn.Module):
     All inputs are normalised RGB tensors (see preprocess.normalize), shape (B,3,H,W).
     """
 
-    def __init__(self, width: str = "full", warp_mode: str = "exact", eps: float = 1e-8):
+    def __init__(
+        self, width: str = "full", warp_mode: str = "exact", eps: float = 1e-8
+    ):
         super().__init__()
         if width not in WIDTHS:
             raise ValueError(f"width must be one of {list(WIDTHS)}, got {width!r}")
         if warp_mode not in WARP_MODES:
-            raise ValueError(f"warp_mode must be one of {WARP_MODES}, got {warp_mode!r}")
+            raise ValueError(
+                f"warp_mode must be one of {WARP_MODES}, got {warp_mode!r}"
+            )
         self.width = width
         self.warp_mode = warp_mode
         self.eps = eps
-        self.flow_net = UNet(6, 4, WIDTHS[width])    # checkpoint key: state_dictFC
+        self.flow_net = UNet(6, 4, WIDTHS[width])  # checkpoint key: state_dictFC
         self.refine_net = UNet(20, 5, WIDTHS[width])  # checkpoint key: state_dictAT
 
     def warp(self, img: torch.Tensor, flow: torch.Tensor) -> torch.Tensor:
@@ -168,12 +186,15 @@ class SuperSloMo(nn.Module):
     def synthesize(self, i0, i1, f01, f10, t) -> dict[str, torch.Tensor]:
         """Refine flows for time t and fuse. Refinement-net input channel order (20 ch),
         identical to the reference: I0, I1, F_01, F_10, F_t1, F_t0, g(I1, F_t1), g(I0, F_t0).
-        Output: dF_t0 = out[:, 0:2], dF_t1 = out[:, 2:4], visibility logit = out[:, 4:5]."""
+        Output: dF_t0 = out[:, 0:2], dF_t1 = out[:, 2:4], visibility logit = out[:, 4:5].
+        """
         tt = _as_time(t, i0)
         f_t0, f_t1 = intermediate_flows(f01, f10, tt)
         g_i0_ft0 = self.warp(i0, f_t0)
         g_i1_ft1 = self.warp(i1, f_t1)
-        out = self.refine_net(torch.cat((i0, i1, f01, f10, f_t1, f_t0, g_i1_ft1, g_i0_ft0), dim=1))
+        out = self.refine_net(
+            torch.cat((i0, i1, f01, f10, f_t1, f_t0, g_i1_ft1, g_i0_ft0), dim=1)
+        )
         f_t0_ref = f_t0 + out[:, 0:2]
         f_t1_ref = f_t1 + out[:, 2:4]
         v_t0 = torch.sigmoid(out[:, 4:5])
@@ -182,29 +203,47 @@ class SuperSloMo(nn.Module):
         g1 = self.warp(i1, f_t1_ref)
         w0, w1 = (1 - tt) * v_t0, tt * v_t1
         frame = (w0 * g0 + w1 * g1) / (w0 + w1 + self.eps)
-        return {"frame": frame, "F_t0": f_t0, "F_t1": f_t1, "F_t0_refined": f_t0_ref,
-                "F_t1_refined": f_t1_ref, "V_t0": v_t0, "V_t1": v_t1,
-                "g_I0_F_t0": g_i0_ft0, "g_I1_F_t1": g_i1_ft1}
+        return {
+            "frame": frame,
+            "F_t0": f_t0,
+            "F_t1": f_t1,
+            "F_t0_refined": f_t0_ref,
+            "F_t1_refined": f_t1_ref,
+            "V_t0": v_t0,
+            "V_t1": v_t1,
+            "g_I0_F_t0": g_i0_ft0,
+            "g_I1_F_t1": g_i1_ft1,
+        }
 
-    def forward(self, i0: torch.Tensor, i1: torch.Tensor, t: float | torch.Tensor) -> dict[str, torch.Tensor]:
+    def forward(
+        self, i0: torch.Tensor, i1: torch.Tensor, t: float | torch.Tensor
+    ) -> dict[str, torch.Tensor]:
         """Training-style forward on inputs whose H, W are multiples of 32."""
         f01, f10 = self.compute_flows(i0, i1)
         out = self.synthesize(i0, i1, f01, f10, t)
         out["F_01"], out["F_10"] = f01, f10
         return out
 
-    def interpolate(self, i0: torch.Tensor, i1: torch.Tensor, ts: Iterable[float],
-                    return_aux: bool = False) -> list:
+    def interpolate(
+        self,
+        i0: torch.Tensor,
+        i1: torch.Tensor,
+        ts: Iterable[float],
+        return_aux: bool = False,
+    ) -> list:
         """Direct multi-frame interpolation of arbitrary-size normalised inputs.
 
         The flow U-Net runs once; the refinement U-Net runs once per t. Frames are returned
-        in the order of `ts` (callers pass ascending times). Predictions are never fed back."""
+        in the order of `ts` (callers pass ascending times). Predictions are never fed back.
+        """
         ts = [float(t) for t in ts]
         for t in ts:
             if not 0.0 <= t <= 1.0:
                 raise ValueError(f"interpolation times must lie in [0, 1], got {t}")
         if i0.shape != i1.shape:
-            raise ValueError(f"I0 and I1 shapes differ: {tuple(i0.shape)} vs {tuple(i1.shape)}")
+            raise ValueError(
+                f"I0 and I1 shapes differ: {tuple(i0.shape)} vs {tuple(i1.shape)}"
+            )
         p0, size = pad_to_multiple(i0, PAD_MULTIPLE)
         p1, _ = pad_to_multiple(i1, PAD_MULTIPLE)
         f01, f10 = self.compute_flows(p0, p1)
@@ -218,22 +257,51 @@ class SuperSloMo(nn.Module):
         return results
 
 
-def superslomo_loss(model: SuperSloMo, i0, i1, it, t, w_recon: float = 1.0, w_warp: float = 0.5,
-                    w_smooth: float = 0.005) -> dict[str, torch.Tensor]:
+def superslomo_loss(
+    model: SuperSloMo,
+    i0,
+    i1,
+    it,
+    t,
+    w_recon: float = 1.0,
+    w_warp: float = 0.5,
+    w_smooth: float = 0.005,
+) -> dict[str, torch.Tensor]:
     """L1 reconstruction + warping + flow smoothness (paper sec. 3.3, without the perceptual term).
 
     Default ratio 1 : 0.5 : 0.005 follows the reference weights 204 : 102 : 1. When the flow net is
     frozen, the warping and smoothness terms carry no gradient to the refinement net."""
     out = model(i0, i1, t)
-    recon = F.l1_loss(out["frame"], it)
-    warp = (F.l1_loss(out["g_I0_F_t0"], it) + F.l1_loss(out["g_I1_F_t1"], it)
-            + F.l1_loss(model.warp(i0, out["F_10"]), i1) + F.l1_loss(model.warp(i1, out["F_01"]), i0))
-    smooth = sum(
-        (f[:, :, :, 1:] - f[:, :, :, :-1]).abs().mean() + (f[:, :, 1:, :] - f[:, :, :-1, :]).abs().mean()
-        for f in (out["F_01"], out["F_10"])
+
+    # Supervise the final blended frame against the intermediate ground truth.
+    reconstruction_loss = F.l1_loss(out["frame"], it)
+
+    # Check alignment at the intermediate time and between the two endpoints.
+    warping_loss = (
+        F.l1_loss(out["g_I0_F_t0"], it)
+        + F.l1_loss(out["g_I1_F_t1"], it)
+        + F.l1_loss(model.warp(i0, out["F_10"]), i1)
+        + F.l1_loss(model.warp(i1, out["F_01"]), i0)
     )
-    total = w_recon * recon + w_warp * warp + w_smooth * smooth
-    return {"total": total, "recon": recon, "warp": warp, "smooth": smooth, "frame": out["frame"]}
+
+    # Penalize changes in flow between neighboring pixels in both directions.
+    smoothness_loss = sum(
+        (flow[:, :, :, 1:] - flow[:, :, :, :-1]).abs().mean()
+        + (flow[:, :, 1:, :] - flow[:, :, :-1, :]).abs().mean()
+        for flow in (out["F_01"], out["F_10"])
+    )
+    total_loss = (
+        w_recon * reconstruction_loss
+        + w_warp * warping_loss
+        + w_smooth * smoothness_loss
+    )
+    return {
+        "total": total_loss,
+        "recon": reconstruction_loss,
+        "warp": warping_loss,
+        "smooth": smoothness_loss,
+        "frame": out["frame"],
+    }
 
 
 def count_parameters(module: nn.Module) -> int:

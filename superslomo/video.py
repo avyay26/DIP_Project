@@ -21,9 +21,13 @@ class FrameReader:
             raise FileNotFoundError(f"Input not found: {self.source}")
         self.is_dir = self.source.is_dir()
         if self.is_dir:
-            self.paths = sorted(p for p in self.source.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+            self.paths = sorted(
+                p for p in self.source.iterdir() if p.suffix.lower() in IMAGE_EXTS
+            )
             if not self.paths:
-                raise FileNotFoundError(f"No images ({sorted(IMAGE_EXTS)}) in directory {self.source}")
+                raise FileNotFoundError(
+                    f"No images ({sorted(IMAGE_EXTS)}) in directory {self.source}"
+                )
             self.fps = default_fps
             self.frame_count = len(self.paths)
         else:
@@ -69,7 +73,9 @@ class FrameWriter:
         if self.to_video:
             if self.writer is None:
                 h, w = rgb.shape[:2]
-                self.writer = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h))
+                self.writer = cv2.VideoWriter(
+                    str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, (w, h)
+                )
                 if not self.writer.isOpened():
                     raise OSError(f"cv2.VideoWriter could not open {self.path}")
             self.writer.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))

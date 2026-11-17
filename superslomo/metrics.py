@@ -31,4 +31,6 @@ def psnr(pred: np.ndarray, gt: np.ndarray) -> float:
 
 def ssim(pred: np.ndarray, gt: np.ndarray) -> float:
     _check(pred, gt)
-    return float(structural_similarity(_to01(gt), _to01(pred), channel_axis=-1, data_range=1.0))
+    return float(
+        structural_similarity(_to01(gt), _to01(pred), channel_axis=-1, data_range=1.0)
+    )

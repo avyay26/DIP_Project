@@ -8,7 +8,16 @@ import numpy as np
 def label(img: np.ndarray, text: str, height: int = 22) -> np.ndarray:
     bar = np.full((height, img.shape[1], 3), 255, np.uint8)
     scale = 0.45 if img.shape[1] >= 160 else 0.35
-    cv2.putText(bar, text, (4, height - 7), cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 1, cv2.LINE_AA)
+    cv2.putText(
+        bar,
+        text,
+        (4, height - 7),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        (0, 0, 0),
+        1,
+        cv2.LINE_AA,
+    )
     return np.vstack([bar, img])
 
 
@@ -25,15 +34,19 @@ def find_focus_box(score: np.ndarray, size: int) -> tuple[int, int, int, int]:
     size = max(8, min(size, h, w))
     box = cv2.blur(score.astype(np.float32), (size, size))
     half = size // 2
-    inner = box[half:h - size + half + 1, half:w - size + half + 1]
+    inner = box[half : h - size + half + 1, half : w - size + half + 1]
     y, x = np.unravel_index(int(np.argmax(inner)), inner.shape)
     return int(y), int(x), size, size
 
 
-def crop_zoom(img: np.ndarray, box: tuple[int, int, int, int], out_w: int) -> np.ndarray:
+def crop_zoom(
+    img: np.ndarray, box: tuple[int, int, int, int], out_w: int
+) -> np.ndarray:
     y, x, h, w = box
-    crop = img[y:y + h, x:x + w]
-    return cv2.resize(crop, (out_w, int(round(out_w * h / w))), interpolation=cv2.INTER_NEAREST)
+    crop = img[y : y + h, x : x + w]
+    return cv2.resize(
+        crop, (out_w, int(round(out_w * h / w))), interpolation=cv2.INTER_NEAREST
+    )
 
 
 def draw_box(img: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
@@ -43,8 +56,12 @@ def draw_box(img: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
     return out
 
 
-def comparison_grid(columns: list[tuple[str, np.ndarray]], gt: np.ndarray | None = None,
-                    focus: np.ndarray | None = None, zoom_frac: float = 0.35) -> np.ndarray:
+def comparison_grid(
+    columns: list[tuple[str, np.ndarray]],
+    gt: np.ndarray | None = None,
+    focus: np.ndarray | None = None,
+    zoom_frac: float = 0.35,
+) -> np.ndarray:
     """Row 1: labelled images (box marks the zoom region); row 2: zoomed crops;
     row 3 (if gt): |pred - gt| error maps for every predicted column."""
     h, w = columns[0][1].shape[:2]
@@ -59,7 +76,12 @@ def comparison_grid(columns: list[tuple[str, np.ndarray]], gt: np.ndarray | None
         maps = []
         for name, img in columns:
             is_pred = name not in ("I0", "I1", "GT")
-            maps.append(label(error_map(img, gt) if is_pred else blank, f"|{name}-GT|" if is_pred else ""))
+            maps.append(
+                label(
+                    error_map(img, gt) if is_pred else blank,
+                    f"|{name}-GT|" if is_pred else "",
+                )
+            )
         rows.append(np.hstack(maps))
     widths = {r.shape[1] for r in rows}
     if len(widths) != 1:

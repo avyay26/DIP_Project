@@ -3,10 +3,12 @@ data/
 outputs/
 runs/
 __pycache__/
+tests/
 *.pyc
 .venv/
 .pytest_cache/
 dataset/
 NOTES.md
+REPORT.md
 
 

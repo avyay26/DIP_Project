@@ -49,12 +49,16 @@ def denormalize(x: torch.Tensor) -> torch.Tensor:
     return (x * std + mean).clamp(0.0, 1.0)
 
 
-def rgb_to_tensor(rgb: np.ndarray | list[np.ndarray], device: str | torch.device = "cpu") -> torch.Tensor:
+def rgb_to_tensor(
+    rgb: np.ndarray | list[np.ndarray], device: str | torch.device = "cpu"
+) -> torch.Tensor:
     """uint8 RGB (H,W,3) or list of them -> normalised float tensor (B,3,H,W)."""
     arrs = rgb if isinstance(rgb, list) else [rgb]
     for a in arrs:
         if a.ndim != 3 or a.shape[2] != 3 or a.dtype != np.uint8:
-            raise ValueError(f"expected uint8 RGB (H,W,3), got dtype={a.dtype} shape={a.shape}")
+            raise ValueError(
+                f"expected uint8 RGB (H,W,3), got dtype={a.dtype} shape={a.shape}"
+            )
     x = torch.from_numpy(np.stack(arrs)).to(device).permute(0, 3, 1, 2).float() / 255.0
     return normalize(x)
 
@@ -72,7 +76,9 @@ def tensor_to_float01(x: torch.Tensor) -> list[np.ndarray]:
     return [a for a in x.permute(0, 2, 3, 1).cpu().numpy().astype(np.float32)]
 
 
-def pad_to_multiple(x: torch.Tensor, multiple: int = 32) -> tuple[torch.Tensor, tuple[int, int]]:
+def pad_to_multiple(
+    x: torch.Tensor, multiple: int = 32
+) -> tuple[torch.Tensor, tuple[int, int]]:
     """Replicate-pad bottom/right so H and W are multiples of `multiple`; returns (padded, (H, W))."""
     h, w = x.shape[-2:]
     ph = (multiple - h % multiple) % multiple
