@@ -45,8 +45,9 @@ Checkpoint finetuning in `midpoint_training.ipynb` and model training from scrat
 
 ```text
 superslomo/               Model, datasets, preprocessing, baselines, and inference
-scripts/                  Training, evaluation, and interpolation commands
-midpoint_training.ipynb    Training notebook
+scripts/                  Training,and interpolation commands
+midpoint_training.ipynb   Training notebook(checkpoint)
+scratch_training.ipynb    Scratch training
 checkpoints/              Pretrained weights
 runs/                     Training checkpoints and logs
 outputs/                  Predictions and evaluation results
